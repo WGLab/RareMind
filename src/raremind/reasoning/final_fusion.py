@@ -15,7 +15,7 @@ from typing import Any, Dict, Tuple
 
 import pandas as pd
 
-from raregraph.core.config import cfg_get
+from raremind.core.config import cfg_get
 
 
 def _minmax(series: pd.Series) -> pd.Series:

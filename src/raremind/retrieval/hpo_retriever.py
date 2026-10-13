@@ -9,9 +9,9 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Dict, List, Set
 
-from raregraph.kg.kg_precompute import KGIndex
-from raregraph.normalize.hpo_hierarchy import ic_gated_expand
-from raregraph.normalize.hpo_ontology import HpoOntology
+from raremind.kg.kg_precompute import KGIndex
+from raremind.normalize.hpo_hierarchy import ic_gated_expand
+from raremind.normalize.hpo_ontology import HpoOntology
 
 
 def retrieve_by_hpo(

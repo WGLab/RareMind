@@ -7,9 +7,9 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
-from raregraph.agents.vision_agents import run_vision_extractor_batch
-from raregraph.llm.vision_api_client import ApiVisionClient
-from raregraph.llm.vllm_vision_client import VllmVisionClient
+from raremind.agents.vision_agents import run_vision_extractor_batch
+from raremind.llm.vision_api_client import ApiVisionClient
+from raremind.llm.vllm_vision_client import VllmVisionClient
 
 logger = logging.getLogger(__name__)
 

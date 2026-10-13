@@ -18,10 +18,10 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from raregraph.core.json_utils import safe_json_load
-from raregraph.core.utils import read_prompt
-from raregraph.core.compat import to_dict
-from raregraph.kg.kg_precompute import KGIndex
+from raremind.core.json_utils import safe_json_load
+from raremind.core.utils import read_prompt
+from raremind.core.compat import to_dict
+from raremind.kg.kg_precompute import KGIndex
 from .audit import compact_patient_evidence
 
 logger = logging.getLogger(__name__)

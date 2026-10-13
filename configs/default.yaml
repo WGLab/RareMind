@@ -143,6 +143,26 @@ retrieval:
   retain_top_k: 500
 
 # ============================================================
+# Stage 3.5 case signal (non-gating; never changes ranking or execution)
+# ============================================================
+case_signal:
+  enabled: true
+  llm_interpretation: true
+  high_ic_threshold: 6.0
+  crowding_fraction: 0.95
+  raw_top_reference: 8.0
+  max_ic_reference: 10.0
+  high_ic_count_reference: 3.0
+  organ_system_reference: 8.0
+  genetic_threshold: 75.0
+  low_signal_threshold: 35.0
+  high_signal_threshold: 75.0
+  group_weights:
+    score_shape: 0.30
+    hpo_specificity: 0.65
+    family_history: 0.05
+
+# ============================================================
 # Frontier consultation (Stage 4) — CONDITIONAL, at most 1 API call per patient
 # ============================================================
 # Master switch: frontier.enabled controls whether Stage 4 runs.
@@ -256,6 +276,34 @@ genomics:
   trigger_command: ""             # optional async command template; see scripts/run_pipeline.py
 
 # ============================================================
+# Stage 9 clinical synthesis (does not change Stages 1-8 or Stage 10)
+# ============================================================
+stage9:
+  backend: "native"              # reuse the loaded pipeline vLLM engine
+  # Optional alternative: backend="endpoint" for an existing vLLM HTTP server.
+  base_url: "http://localhost:8000/v1"
+  model_name: ""                 # inherit models.text_llm.model_name; no new model
+  temperature: 0.1               # Stage 9 only; upstream sampling is unchanged
+  max_batch_size: 14             # all ten candidate prompts in one native batch
+  max_concurrency: 14            # concurrent calls in endpoint mode
+  timeout_seconds: 300
+  max_retries: 2                 # endpoint transport retries, not extra synthesis steps
+  context_safety_margin: 64      # reserve room for chat-template/tokenization variance
+  minimum_output_tokens: 256     # fail only if even a minimally useful answer cannot fit
+  truncate_overlong_inputs: true # only when needed; raw note middle first, with an explicit marker
+  preserve_requested_output_tokens: true # trim overlong input enough to retain the configured answer budget
+  token_budgets:
+    # Output limits. Full source evidence is retained unless the model context
+    # cannot hold input + this output budget; such truncation is audited.
+    patient_summary: 2000
+    family_history: 1500
+    candidate_top3: 2500
+    candidate_4_to_7: 2000
+    candidate_8_plus: 1500
+    differential_synthesis: 1500
+    next_steps: 2000
+
+# ============================================================
 # Pipeline / output
 # ============================================================
 output:
@@ -263,6 +311,7 @@ output:
   save_rank_trajectory: true
   save_scorecard_txt: true
   save_scorecard_json: true
+  save_scorecard_pdf: true
 
 # ============================================================
 # Next-test and next-step recommendations (Stage 10)

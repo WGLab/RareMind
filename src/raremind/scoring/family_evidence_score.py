@@ -13,9 +13,9 @@ from typing import Any, Dict, List, Set
 
 from rapidfuzz import fuzz
 
-from raregraph.core.compat import to_dict
-from raregraph.kg.kg_precompute import KGIndex
-from raregraph.normalize.inheritance_inference import inheritance_compatibility_flag
+from raremind.core.compat import to_dict
+from raremind.kg.kg_precompute import KGIndex
+from raremind.normalize.inheritance_inference import inheritance_compatibility_flag
 
 
 FAMILY_PHENOTYPE_SIM_WEIGHT = 0.8

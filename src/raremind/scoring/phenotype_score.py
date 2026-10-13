@@ -16,8 +16,8 @@ from dataclasses import dataclass
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from raregraph.kg.kg_precompute import KGIndex, IMPORTANCE_WEIGHT, FREQUENCY_WEIGHT
-from raregraph.normalize.hpo_ontology import HpoOntology
+from raremind.kg.kg_precompute import KGIndex, IMPORTANCE_WEIGHT, FREQUENCY_WEIGHT
+from raremind.normalize.hpo_ontology import HpoOntology
 
 
 @dataclass

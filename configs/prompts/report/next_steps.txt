@@ -1,0 +1,17 @@
+TASK: Write a prioritized numbered list of at most 6 next steps. Explain each supported action sufficiently without a fixed word limit; avoid repetition.
+--- PATIENT SUMMARY ---
+${patient_summary}
+--- FAMILY HISTORY SUMMARY ---
+${family_summary}
+--- TOP 5 CANDIDATES: KG CLINICAL MANAGEMENT AND MISSING FINDINGS ---
+${management}
+--- PRIOR TESTING (DO NOT RECOMMEND COMPLETED TESTS AGAIN) ---
+${testing}
+--- STRUCTURED FAMILY HISTORY ---
+${family_history}
+Contextualize supplied KG actions, not an invented workup. For each item name
+the specific test/examination/referral/cascade action, what it would establish,
+which competing diagnoses it addresses, and whether it concerns relatives.
+Do not repeat a completed test; distinguish pending results from an unperformed
+test. If no supported actions are supplied, explicitly state that limitation.
+This is Stage 9 clinical synthesis, not the separate Stage 10 action-frequency table.

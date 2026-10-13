@@ -130,6 +130,7 @@ class PatientCaseState(BaseModel):
 
     # per-stage outputs
     ranked: Any = None                       # DataFrame after Stage 3
+    case_signal: Dict[str, Any] = Field(default_factory=dict)  # Stage 3.5, non-gating
     frontier_output: Dict[str, Any] = Field(default_factory=dict)
     audit_results: List[Dict[str, Any]] = Field(default_factory=list)
     ranking_after_audit: Any = None          # DataFrame after Stage 5
@@ -139,5 +140,6 @@ class PatientCaseState(BaseModel):
     reranked_group: Any = None
     reconciled: Dict[str, Any] = Field(default_factory=dict)
     scorecard: Dict[str, Any] = Field(default_factory=dict)
+    group_scorecard: Dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"arbitrary_types_allowed": True}

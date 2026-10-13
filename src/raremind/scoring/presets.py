@@ -8,7 +8,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict
 
-from raregraph.core.config import AttrDict, cfg_get
+from raremind.core.config import AttrDict, cfg_get
 
 
 SCORING_PRESETS: Dict[str, Dict[str, Any]] = {

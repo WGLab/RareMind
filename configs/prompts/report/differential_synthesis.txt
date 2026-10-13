@@ -1,0 +1,28 @@
+TASK: Write a differential synthesis covering the clinically relevant evidence and uncertainties, without a fixed word limit. Avoid repetition.
+--- PATIENT SUMMARY ---
+${patient_summary}
+--- FAMILY HISTORY SUMMARY ---
+${family_summary}
+--- FIXED CANDIDATE RANKS AND OVERALL ASSESSMENTS ---
+${assessments}
+--- PRIOR TESTING ---
+${testing}
+--- PHENOTYPIC INCONGRUITY ---
+${incongruity}
+--- STAGE 8 RECONCILIATION ---
+${reconciled}
+--- SOURCE PATIENT EVIDENCE (verify upstream assessments against this) ---
+${patient_evidence}
+Identify the dominant phenotypic cluster/mechanism, tests constraining candidates
+(do not overstate exclusion), the single information gap most likely to narrow
+the differential, and any subtype/group disagreement. Do not enumerate all
+candidates. Preserve fixed ranks and distinguish uncertain prior interpretations.
+Lead with documented positive evidence and any verified contradictions. Do not
+carry forward an upstream weak/unlikely label justified only by undocumented
+hallmarks. Treat such gaps as clarification priorities, not exclusion evidence.
+Retain genuine negative-test and explicit-absence analysis with its limitations;
+do not overclaim likelihood merely because a candidate appears in the Top-10.
+Explain the patient-specific pattern connecting the prioritized candidates, rather
+than summarizing each candidate as a list of missing hallmarks. Use natural prose,
+not a repeated formula. If discussing a next action from the supplied assessments,
+preserve its stated KG provenance and purpose without expanding its claimed value.

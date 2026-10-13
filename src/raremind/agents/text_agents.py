@@ -13,10 +13,14 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from raregraph.core.json_utils import safe_json_load
-from raregraph.core.utils import read_prompt
-from raregraph.llm.vllm_client import VllmClient
-from raregraph.agents.context_flags import add_context_flags
+from raremind.core.json_utils import safe_json_load
+from raremind.core.utils import read_prompt
+from raremind.llm.vllm_client import VllmClient
+from raremind.agents.context_flags import add_context_flags
+from raremind.normalize.family_history import (
+    family_history_candidate_context,
+    sanitize_family_history,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +133,72 @@ def _parse_extractor_output(raw: Any, prefer: str = "any") -> Tuple[Any, Dict[st
     return parsed, diag
 
 
+def _run_family_history_extractor_with_gate(
+    llm: VllmClient,
+    notes: List[str],
+    prompt_path: Path,
+    *,
+    return_diagnostics: bool = False,
+) -> List[Any]:
+    """Extract family history only from plausible relative-specific passages.
+
+    Most clinical notes do not contain usable family history. Notes without a
+    relationship term or a family-history section are deterministically
+    returned as ``[]`` without asking the LLM. Any LLM output is then checked
+    against the original note, including an exact evidence-quote requirement.
+    """
+    contexts = [family_history_candidate_context(note) for note in notes]
+    outputs: List[List[Dict[str, Any]]] = [[] for _ in notes]
+    diagnostics: List[Dict[str, Any]] = []
+    for context in contexts:
+        diagnostics.append({
+            "candidate_context_found": bool(context),
+            "candidate_context_characters": len(context),
+            "skipped_no_candidate_context": not bool(context),
+            "raw_type": "not_called" if not context else None,
+            "parse_repaired": False,
+            "parse_failed": False,
+            "parsed_type": "list" if not context else None,
+        })
+
+    selected_indices = [index for index, context in enumerate(contexts) if context]
+    if selected_indices:
+        selected_contexts = [contexts[index] for index in selected_indices]
+        pairs = _run_extractor(
+            llm,
+            selected_contexts,
+            prompt_path,
+            prefer="array",
+            apply_context_flags=False,
+            return_diagnostics=True,
+        )
+        for index, (value, parse_diag) in zip(selected_indices, pairs):
+            cleaned, audit = sanitize_family_history(
+                value,
+                note=notes[index],
+                return_audit=True,
+            )
+            outputs[index] = cleaned
+            diagnostics[index].update(parse_diag)
+            diagnostics[index]["family_history_sanitization"] = audit
+
+    for index in range(len(notes)):
+        diagnostics[index].setdefault(
+            "family_history_sanitization",
+            {
+                "sanitizer_version": "not_called_no_candidate_context",
+                "input_count": 0,
+                "retained_count": 0,
+                "removed_count": 0,
+                "removal_reasons": {},
+            },
+        )
+
+    if return_diagnostics:
+        return list(zip(outputs, diagnostics))
+    return outputs
+
+
 def run_stage1_text_extractors_batch(
     llm: VllmClient,
     notes: List[str],
@@ -147,13 +217,18 @@ def run_stage1_text_extractors_batch(
 
     for field, filename, prefer in extractor_specs:
         path = Path(prompt_dir) / "extraction" / filename
-        pairs = _run_extractor(
-            llm,
-            notes,
-            path,
-            prefer=prefer,
-            return_diagnostics=True,
-        )
+        if field == "family_history":
+            pairs = _run_family_history_extractor_with_gate(
+                llm, notes, path, return_diagnostics=True,
+            )
+        else:
+            pairs = _run_extractor(
+                llm,
+                notes,
+                path,
+                prefer=prefer,
+                return_diagnostics=True,
+            )
         values, diags = zip(*pairs) if pairs else ([], [])
         by_field[field] = list(values)
         by_field_diag[field] = list(diags)
@@ -170,8 +245,7 @@ def run_stage1_text_extractors_batch(
         row = {
             "text_phenotypes": _normalize_phenotype_items(by_field["text_phenotypes"][i]),
             "demographics": demo,
-            "family_history": by_field["family_history"][i]
-            if isinstance(by_field["family_history"][i], list) else [],
+            "family_history": by_field["family_history"][i],
             "testing": by_field["testing"][i]
             if isinstance(by_field["testing"][i], list) else [],
             "gene_mentions": by_field["gene_mentions"][i]
@@ -221,8 +295,7 @@ def run_family_history_extractor_batch(
     prompt_dir: str,
 ) -> List[List[Dict[str, Any]]]:
     path = Path(prompt_dir) / "extraction" / "text_family_history_extractor.md"
-    outs = _run_extractor(llm, notes, path, prefer="array")
-    return [o if isinstance(o, list) else [] for o in outs]
+    return _run_family_history_extractor_with_gate(llm, notes, path)
 
 
 def run_testing_extractor_batch(

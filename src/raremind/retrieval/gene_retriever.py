@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Set
 
-from raregraph.kg.kg_precompute import KGIndex
+from raremind.kg.kg_precompute import KGIndex
 
 
 def _norm_result(value: Any) -> str:

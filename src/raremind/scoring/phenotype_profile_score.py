@@ -17,8 +17,8 @@ from dataclasses import dataclass
 import math
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from raregraph.kg.kg_precompute import KGIndex
-from raregraph.normalize.hpo_ontology import HpoOntology
+from raremind.kg.kg_precompute import KGIndex
+from raremind.normalize.hpo_ontology import HpoOntology
 
 
 PROFILE_IMPORTANCE_WEIGHT = {

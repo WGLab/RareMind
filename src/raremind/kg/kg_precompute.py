@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from itertools import combinations
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from raregraph.normalize.hpo_ontology import HpoOntology
+from raremind.normalize.hpo_ontology import HpoOntology
 
 logger = logging.getLogger(__name__)
 

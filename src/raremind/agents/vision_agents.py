@@ -5,8 +5,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
-from raregraph.core.json_utils import safe_json_load
-from raregraph.core.utils import read_prompt
+from raremind.core.json_utils import safe_json_load
+from raremind.core.utils import read_prompt
 
 logger = logging.getLogger(__name__)
 

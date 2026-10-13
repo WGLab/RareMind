@@ -15,12 +15,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from tqdm import tqdm
 import pandas as pd
 
-from raregraph.core.json_utils import safe_json_load, validate_quote
-from raregraph.core.utils import read_prompt
-from raregraph.core.compat import to_dict
-from raregraph.core.config import audit_top_n_candidates
-from raregraph.kg.kg_precompute import KGIndex, IMPORTANCE_WEIGHT, FREQUENCY_WEIGHT
-from raregraph.scoring.phenotype_score import _are_antonymic_pair
+from raremind.core.json_utils import safe_json_load, validate_quote
+from raremind.core.utils import read_prompt
+from raremind.core.compat import to_dict
+from raremind.core.config import audit_top_n_candidates
+from raremind.kg.kg_precompute import KGIndex, IMPORTANCE_WEIGHT, FREQUENCY_WEIGHT
+from raremind.scoring.phenotype_score import _are_antonymic_pair
 
 logger = logging.getLogger(__name__)
 

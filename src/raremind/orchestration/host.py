@@ -38,6 +38,7 @@ from raremind.normalize.normalizers import HpoNormalizer
 from raremind.normalize.mondo_normalizer import MondoNormalizer
 from raremind.normalize.temporal_parser import build_temporal_view
 from raremind.normalize.inheritance_inference import infer_inheritance_prior
+from raremind.normalize.family_history import sanitize_family_history
 from raremind.normalize.incongruity_detector import detect_incongruity
 from raremind.normalize.disease_id_mapper import DiseaseIdMapper
 
@@ -62,8 +63,11 @@ from raremind.reasoning.rank_centrality import aggregate_rank
 from raremind.reasoning.reconciliation import reconcile
 from raremind.reasoning.final_fusion import apply_final_fusion
 from raremind.reasoning.scorecard import (
-    build_scorecard, format_scorecard_text, build_rank_trajectory,
+    build_scorecard, build_group_scorecard, collapse_reconciled_groups,
+    format_scorecard_text, build_rank_trajectory,
 )
+from raremind.reasoning.case_signal import build_case_signal_assessment
+from raremind.reasoning.report_pdf import render_stage9_pdf
 from raremind.reasoning.next_steps import (
     build_next_step_recommendations,
     RECOMMENDATION_COLUMNS,
@@ -80,6 +84,16 @@ SOURCE_PRIORITY = {
 
 
 class RareMindHost:
+    _STAGE8_RESUME_FILES = (
+        "stage1_extraction.json",
+        "stage2_patient_evidence.json",
+        "stage3_composite_ranking.tsv",
+        "stage5_audit_results.json",
+        "stage6_pairwise_results_subtype.json",
+        "stage8_reconciled.json",
+        "stage8_final_fusion.tsv",
+    )
+
     def __init__(self, cfg: AttrDict):
         self.cfg = cfg
         self.kg: Dict[str, Dict[str, Any]] = {}
@@ -355,8 +369,9 @@ class RareMindHost:
         stage1_json_path: Optional[str] = None,
         genomics_result_path: Optional[str] = None,
         output_dir: Optional[str] = None,
+        control: bool = False,
     ) -> Dict[str, Any]:
-        """Run the full 10-stage RareMind pipeline for a single patient."""
+        """Run RareMind, optionally stopping after the Stage 3.5 case signal."""
         out_dir = ensure_dir(output_dir or f"outputs/{case_id}")
         logger.info(f"=== Running case {case_id} ===")
 
@@ -392,6 +407,44 @@ class RareMindHost:
         ranked_df = self._ensure_group_columns(ranked_df)
         state.ranked = ranked_df
         ranked_df.to_csv(out_dir / "stage3_composite_ranking.tsv", sep="\t", index=False)
+
+        # =================== STAGE 3.5 ===================
+        logger.info("--- Stage 3.5: Non-gating case-signal assessment ---")
+        case_signal_cfg = cfg_get(self.cfg, "case_signal", {})
+        if bool(cfg_get(case_signal_cfg, "enabled", True)) or control:
+            state.case_signal = build_case_signal_assessment(
+                patient_state=state,
+                ranked_df=ranked_df,
+                hpo=self.hpo,
+                config=case_signal_cfg,
+                llm=self.text_llm,
+            )
+            write_json(state.case_signal, out_dir / "stage3_5_case_signal.json")
+
+        if control:
+            control_summary = {
+                "case_id": case_id,
+                "status": "complete_through_stage3_5",
+                "control_mode": True,
+                "completed_stages": [1, 2, 3, 3.5],
+                "stopped_before_stage": 4,
+                "case_signal": state.case_signal,
+            }
+            write_json(control_summary, out_dir / "control_run_summary.json")
+            logger.info(
+                "=== Control case %s done after Stage 3.5; reranking and later stages skipped ===",
+                case_id,
+            )
+            return {
+                "case_id": case_id,
+                "status": "complete_through_stage3_5",
+                "control_mode": True,
+                "top": ranked_df.head(5).to_dict("records"),
+                "output_dir": str(out_dir),
+                "reconciled": {},
+                "case_signal": state.case_signal,
+                "next_steps": [],
+            }
 
         # =================== STAGE 4 ===================
         logger.info("--- Stage 4: Frontier consultation (conditional) ---")
@@ -474,8 +527,8 @@ class RareMindHost:
         }
         write_json(state.reconciled, out_dir / "stage8_reconciled.json")
 
-        # =================== STAGE 9 ===================
-        logger.info("--- Stage 9: Clinical scorecard ---")
+        # =================== STAGE 9A / 9B ===================
+        logger.info("--- Stage 9A: Group-level clinical synthesis ---")
         final_df_for_scorecard = (
             reconciled["final_df"] if isinstance(reconciled.get("final_df"), pd.DataFrame)
             else reconciled["reconciled_df"] if isinstance(reconciled.get("reconciled_df"), pd.DataFrame)
@@ -486,19 +539,67 @@ class RareMindHost:
             reconciled["final_df"] = final_df_for_scorecard
         elif isinstance(reconciled.get("reconciled_df"), pd.DataFrame):
             reconciled["reconciled_df"] = final_df_for_scorecard
+        subtype_reconciled_for_group = (
+            reconciled_df if isinstance(reconciled_df, pd.DataFrame) else reranked_subtype
+        )
+        subtype_reconciled_for_group = self._ensure_group_columns(subtype_reconciled_for_group)
+        group_report_ranking = collapse_reconciled_groups(subtype_reconciled_for_group)
+        group_report_ranking.to_csv(
+            out_dir / "stage9a_group_ranking.tsv", sep="\t", index=False
+        )
+        group_scorecard = build_group_scorecard(
+            state, group_report_ranking, subtype_reconciled_for_group, audit_results,
+            reconciled, frontier_output,
+            top_k=self.cfg.output.scorecard_top_k,
+            kg=self.kg,
+            llm=self.text_llm,
+            pairwise_group=pairwise_group,
+            pairwise_subtype=pairwise_subtype,
+            synthesis_config=cfg_get(self.cfg, "stage9", {}),
+        )
+        state.group_scorecard = group_scorecard
+        if self.cfg.output.save_scorecard_json:
+            write_json(group_scorecard, out_dir / "stage9a_group_reasoning_report.json")
+        if self.cfg.output.save_scorecard_txt:
+            (out_dir / "stage9a_group_reasoning_report.txt").write_text(
+                format_scorecard_text(group_scorecard).rstrip() + "\n", encoding="utf-8"
+            )
+        if bool(cfg_get(self.cfg.output, "save_scorecard_pdf", True)):
+            render_stage9_pdf(
+                group_scorecard, out_dir / "stage9a_group_reasoning_report.pdf",
+                case_id=state.case_id, report_level="a",
+            )
+
+        logger.info("--- Stage 9B: Exact subtype-level clinical synthesis ---")
         scorecard = build_scorecard(
             state, final_df_for_scorecard, audit_results,
             reconciled, frontier_output,
             top_k=self.cfg.output.scorecard_top_k,
+            kg=self.kg,
+            llm=self.text_llm,
+            pairwise_subtype=pairwise_subtype,
+            synthesis_config=cfg_get(self.cfg, "stage9", {}),
         )
         state.scorecard = scorecard
+        scorecard["case_signal"] = state.case_signal
 
         if self.cfg.output.save_scorecard_json:
-            write_json(scorecard, out_dir / "stage9_scorecard.json")
+            write_json(scorecard, out_dir / "stage9_reasoning_report.json")
+            write_json(scorecard, out_dir / "stage9b_subtype_reasoning_report.json")
         if self.cfg.output.save_scorecard_txt:
-            (out_dir / "stage9_scorecard.txt").write_text(
-                format_scorecard_text(scorecard), encoding="utf-8"
+            report_text = format_scorecard_text(scorecard)
+            (out_dir / "stage9_reasoning_report.txt").write_text(
+                report_text.rstrip() + "\n", encoding="utf-8"
             )
+            (out_dir / "stage9b_subtype_reasoning_report.txt").write_text(
+                report_text.rstrip() + "\n", encoding="utf-8"
+            )
+        if bool(cfg_get(self.cfg.output, "save_scorecard_pdf", True)):
+            render_stage9_pdf(
+                scorecard, out_dir / "stage9b_subtype_reasoning_report.pdf",
+                case_id=state.case_id, report_level="b",
+            )
+        (out_dir / "stage9_reasoning_report.pdf").unlink(missing_ok=True)
 
         # Rank trajectory
         if self.cfg.output.save_rank_trajectory:
@@ -602,7 +703,302 @@ class RareMindHost:
             "top": scorecard.get("top_candidates", [])[:5],
             "output_dir": str(out_dir),
             "reconciled": state.reconciled,
+            "case_signal": state.case_signal,
             "next_steps": next_steps_payload.get("recommendations", []),
+        }
+
+    @classmethod
+    def can_resume_from_stage8(cls, output_dir: str | Path) -> bool:
+        """Whether saved artifacts are sufficient to run only Stages 9–10."""
+        folder = Path(output_dir)
+        return all((folder / name).is_file() for name in cls._STAGE8_RESUME_FILES)
+
+    @staticmethod
+    def _read_saved_json(path: Path) -> Any:
+        with path.open(encoding="utf-8-sig") as handle:
+            return json.load(handle)
+
+    @classmethod
+    def _valid_saved_stage9(cls, path: Path) -> Optional[Dict[str, Any]]:
+        if not path.is_file():
+            return None
+        try:
+            value = cls._read_saved_json(path)
+        except (OSError, ValueError, TypeError):
+            return None
+        if not isinstance(value, dict):
+            return None
+        if not str(value.get("synthesis_report", "")).strip():
+            return None
+        cards = value.get("top_candidates")
+        if not isinstance(cards, list) or not cards:
+            return None
+        return value
+
+    def _save_stage10_from_final_ranking(
+        self,
+        *,
+        case_id: str,
+        final_df: pd.DataFrame,
+        out_dir: Path,
+    ) -> List[Dict[str, Any]]:
+        """Generate the single canonical Stage 10 TSV from a saved Final Rank."""
+        next_cfg = cfg_get(self.cfg, "next_steps", {})
+        recommendations = pd.DataFrame(columns=RECOMMENDATION_COLUMNS)
+        selected_groups = pd.DataFrame()
+        metadata: Dict[str, Any] = {}
+        status = "disabled"
+        if bool(cfg_get(next_cfg, "enabled", True)):
+            recommendations, _raw_actions, selected_groups, metadata = (
+                build_next_step_recommendations(
+                    final_df=final_df,
+                    kg=self.kg,
+                    embedder=self.embedder,
+                    disease_top_k=int(cfg_get(next_cfg, "disease_top_k", 10)),
+                    action_top_k=int(cfg_get(next_cfg, "action_top_k", 10)),
+                    fields=cfg_get(
+                        next_cfg, "action_fields", ["testing", "initial_evaluations"]
+                    ),
+                    cluster_threshold=float(
+                        cfg_get(next_cfg, "cluster_similarity_threshold", 0.90)
+                    ),
+                )
+            )
+            status = "complete"
+
+        source_columns = [
+            column for column in (
+                "final_rank", "group_id", "group_name", "disease_id", "disease_name",
+            ) if column in selected_groups.columns
+        ]
+        source_groups = (
+            selected_groups[source_columns].to_dict("records")
+            if source_columns else []
+        )
+        table = recommendations.copy()
+        if table.empty:
+            table = pd.DataFrame([
+                {column: pd.NA for column in RECOMMENDATION_COLUMNS}
+            ])
+        context_columns = {
+            "case_id": case_id,
+            "status": status,
+            "disease_top_k": metadata.get("disease_top_k"),
+            "action_top_k": metadata.get("action_top_k"),
+            "source_fields": "|".join(metadata.get("source_fields", [])),
+            "selected_disease_groups": metadata.get("selected_disease_groups"),
+            "raw_action_mentions": metadata.get("raw_action_mentions"),
+            "normalization_method": metadata.get("normalization_method"),
+            "embedding_model": metadata.get("embedding_model"),
+            "cluster_similarity_threshold": metadata.get("cluster_similarity_threshold"),
+            "source_disease_groups_json": json.dumps(
+                source_groups, ensure_ascii=False, default=str,
+            ),
+        }
+        for column, value in reversed(tuple(context_columns.items())):
+            table.insert(0, column, value)
+        table.to_csv(out_dir / "stage10_next_steps.tsv", sep="\t", index=False)
+        return recommendations.to_dict("records")
+
+    def resume_patient_from_stage8(
+        self,
+        *,
+        case_id: str,
+        output_dir: str,
+        note_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Resume a partially completed case without changing Stages 1–8.
+
+        A valid Stage 9 JSON is reused and its text rendering is repaired when
+        absent. Stage 10 is generated only when its canonical TSV is absent.
+        """
+        out_dir = Path(output_dir)
+        if not self.can_resume_from_stage8(out_dir):
+            missing = [
+                name for name in self._STAGE8_RESUME_FILES
+                if not (out_dir / name).is_file()
+            ]
+            raise FileNotFoundError(
+                f"Case {case_id} cannot resume at Stage 9; missing: {', '.join(missing)}"
+            )
+
+        s1 = self._read_saved_json(out_dir / "stage1_extraction.json")
+        s2 = self._read_saved_json(out_dir / "stage2_patient_evidence.json")
+        note_text = ""
+        if note_path and Path(note_path).is_file():
+            note_text = Path(note_path).read_text(encoding="utf-8")
+        note_text = note_text or str(s1.get("note_text", ""))
+        if not note_text.strip():
+            raise ValueError(
+                f"Case {case_id} has no recoverable source note for Stage 9 resume"
+            )
+
+        family_history = sanitize_family_history(
+            s2.get("family_history", s1.get("family_history", [])),
+            note=note_text,
+        )
+        genes = s2.get("gene_evidence", {}) or {}
+        phenotypes = list(s2.get("phenotypes", []))
+        for negated in s2.get("negated", []):
+            item = {**negated, "present": False}
+            key = (item.get("hpo_id"), item.get("attribution"), False)
+            existing = {
+                (p.get("hpo_id"), p.get("attribution"), p.get("present", True))
+                for p in phenotypes if isinstance(p, dict)
+            }
+            if key not in existing:
+                phenotypes.append(item)
+
+        state = PatientCaseState(case_id=case_id, note_path=note_path)
+        state.note_text = note_text
+        state.phenotype_mentions_text = s1.get("text_phenotypes", []) or []
+        state.phenotype_mentions_vision = s1.get("vision_phenotypes", []) or []
+        state.demographics = s2.get("demographics", s1.get("demographics", {})) or {}
+        state.family_history = family_history
+        state.testing = s1.get("testing", []) or []
+        state.gene_mentions = genes.get("gene_mentions", s1.get("gene_mentions", [])) or []
+        state.vcf_summary = genes.get("vcf_summary", s1.get("vcf_summary", [])) or []
+        state.normalized_hpo = [
+            NormalizedPhenotype(**item) for item in phenotypes if isinstance(item, dict)
+        ]
+        state.inheritance_prior = infer_inheritance_prior(family_history)
+        state.temporal_view = TemporalView(**(s2.get("temporal_view", {}) or {}))
+        state.incongruity = IncongruityInfo(**(s2.get("incongruity", {}) or {}))
+        state.ranked = pd.read_csv(out_dir / "stage3_composite_ranking.tsv", sep="\t")
+
+        case_signal_path = out_dir / "stage3_5_case_signal.json"
+        if case_signal_path.is_file():
+            state.case_signal = self._read_saved_json(case_signal_path)
+        elif bool(cfg_get(cfg_get(self.cfg, "case_signal", {}), "enabled", True)):
+            logger.info("--- Stage 3.5: Resume from saved Stage 3 ranking ---")
+            state.case_signal = build_case_signal_assessment(
+                patient_state=state,
+                ranked_df=state.ranked,
+                hpo=self.hpo,
+                config=cfg_get(self.cfg, "case_signal", {}),
+                llm=self.text_llm,
+            )
+            write_json(state.case_signal, case_signal_path)
+
+        final_df = pd.read_csv(out_dir / "stage8_final_fusion.tsv", sep="\t")
+        final_df = self._ensure_group_columns(final_df)
+        if "final_rank" in final_df.columns:
+            final_df = final_df.sort_values("final_rank", kind="stable").reset_index(drop=True)
+        audit_results = self._read_saved_json(out_dir / "stage5_audit_results.json")
+        pairwise = self._read_saved_json(out_dir / "stage6_pairwise_results_subtype.json")
+        reconciled = self._read_saved_json(out_dir / "stage8_reconciled.json")
+        frontier_path = out_dir / "stage4_frontier_output.json"
+        frontier = self._read_saved_json(frontier_path) if frontier_path.is_file() else {}
+        state.audit_results = audit_results
+        state.pairwise_results_subtype = pairwise
+        state.reconciled = reconciled
+        state.frontier_output = frontier
+
+        reconciled_ranking_path = out_dir / "stage8_reconciled_ranking.tsv"
+        subtype_reconciled_for_group = (
+            pd.read_csv(reconciled_ranking_path, sep="\t")
+            if reconciled_ranking_path.is_file() else final_df.copy()
+        )
+        subtype_reconciled_for_group = self._ensure_group_columns(subtype_reconciled_for_group)
+        group_df = collapse_reconciled_groups(subtype_reconciled_for_group)
+        group_df.to_csv(out_dir / "stage9a_group_ranking.tsv", sep="\t", index=False)
+        pairwise_group_path = out_dir / "stage6_pairwise_results_group.json"
+        pairwise_group = (
+            self._read_saved_json(pairwise_group_path) if pairwise_group_path.is_file() else []
+        )
+        state.reranked_group = group_df
+        state.pairwise_results_group = pairwise_group
+
+        stage9a_path = out_dir / "stage9a_group_reasoning_report.json"
+        group_scorecard = self._valid_saved_stage9(stage9a_path)
+        if (
+            group_scorecard is not None
+            and (group_scorecard.get("reconciled", {}) or {}).get("method")
+            != "stage8_reconciled_group_name_collapse"
+        ):
+            logger.info("Case %s: rebuilding legacy Stage 9A with Stage 8 group collapse", case_id)
+            group_scorecard = None
+        if group_scorecard is None:
+            logger.info("--- Stage 9A: Resume group synthesis from saved ranking ---")
+            group_scorecard = build_group_scorecard(
+                state, group_df, subtype_reconciled_for_group, audit_results, reconciled, frontier,
+                top_k=self.cfg.output.scorecard_top_k,
+                kg=self.kg,
+                llm=self.text_llm,
+                pairwise_group=pairwise_group,
+                pairwise_subtype=pairwise,
+                synthesis_config=cfg_get(self.cfg, "stage9", {}),
+            )
+            write_json(group_scorecard, stage9a_path)
+        group_scorecard["case_signal"] = state.case_signal
+        state.group_scorecard = group_scorecard
+        if self.cfg.output.save_scorecard_json:
+            write_json(group_scorecard, stage9a_path)
+        if self.cfg.output.save_scorecard_txt:
+            (out_dir / "stage9a_group_reasoning_report.txt").write_text(
+                format_scorecard_text(group_scorecard).rstrip() + "\n", encoding="utf-8"
+            )
+        if bool(cfg_get(self.cfg.output, "save_scorecard_pdf", True)):
+            render_stage9_pdf(
+                group_scorecard, out_dir / "stage9a_group_reasoning_report.pdf",
+                case_id=case_id, report_level="a",
+            )
+
+        stage9_path = out_dir / "stage9_reasoning_report.json"
+        scorecard = self._valid_saved_stage9(stage9_path)
+        if scorecard is None:
+            logger.info("--- Stage 9: Resume from saved Stage 8 checkpoint ---")
+            scorecard = build_scorecard(
+                state, final_df, audit_results, reconciled, frontier,
+                top_k=self.cfg.output.scorecard_top_k,
+                kg=self.kg,
+                llm=self.text_llm,
+                pairwise_subtype=pairwise,
+                synthesis_config=cfg_get(self.cfg, "stage9", {}),
+            )
+            write_json(scorecard, stage9_path)
+        else:
+            logger.info("Case %s: valid Stage 9 exists; reusing it", case_id)
+        scorecard["case_signal"] = state.case_signal
+        if self.cfg.output.save_scorecard_txt:
+            text_path = out_dir / "stage9_reasoning_report.txt"
+            if not text_path.is_file():
+                text_path.write_text(
+                    format_scorecard_text(scorecard).rstrip() + "\n", encoding="utf-8"
+                )
+            (out_dir / "stage9b_subtype_reasoning_report.txt").write_text(
+                format_scorecard_text(scorecard).rstrip() + "\n", encoding="utf-8"
+            )
+        if self.cfg.output.save_scorecard_json:
+            write_json(scorecard, out_dir / "stage9b_subtype_reasoning_report.json")
+        if bool(cfg_get(self.cfg.output, "save_scorecard_pdf", True)):
+            render_stage9_pdf(
+                scorecard, out_dir / "stage9b_subtype_reasoning_report.pdf",
+                case_id=case_id, report_level="b",
+            )
+        (out_dir / "stage9_reasoning_report.pdf").unlink(missing_ok=True)
+
+        stage10_path = out_dir / "stage10_next_steps.tsv"
+        if stage10_path.is_file():
+            logger.info("Case %s: Stage 10 exists; reusing it", case_id)
+            stage10_table = pd.read_csv(stage10_path, sep="\t")
+            next_steps = stage10_table[
+                stage10_table.get("action", pd.Series(index=stage10_table.index, dtype=object)).notna()
+            ].to_dict("records")
+        else:
+            logger.info("--- Stage 10: Resume from saved Final Rank ---")
+            next_steps = self._save_stage10_from_final_ranking(
+                case_id=case_id, final_df=final_df, out_dir=out_dir,
+            )
+
+        logger.info("=== Case %s resumed without rerunning Stages 1–8 ===", case_id)
+        return {
+            "case_id": case_id,
+            "top": scorecard.get("top_candidates", [])[:5],
+            "output_dir": str(out_dir),
+            "reconciled": reconciled,
+            "case_signal": state.case_signal,
+            "next_steps": next_steps,
         }
     # ===============================================================
     # Stage implementations
@@ -739,6 +1135,14 @@ class RareMindHost:
                         "Genomics evidence is pending and was not scored."
                     )
 
+        # Deterministic guardrail after both fresh extraction and cache loading:
+        # accompaniment or relationship text alone cannot establish that a
+        # relative is clinically affected.
+        state.family_history, family_audit = sanitize_family_history(
+            state.family_history, note=state.note_text, return_audit=True,
+        )
+        out["family_history"] = state.family_history
+        out["family_history_sanitization"] = family_audit
         out["extracted_entities"] = self._build_extracted_entities(out)
         return out
 
@@ -759,11 +1163,15 @@ class RareMindHost:
 
         out: Dict[str, Dict[str, Any]] = {}
         for case, note_text, text_out in zip(note_cases, notes, text_outs):
+            family_history, family_audit = sanitize_family_history(
+                text_out["family_history"], note=note_text, return_audit=True,
+            )
             payload = {
                 "note_text": note_text,
                 "text_phenotypes": text_out["text_phenotypes"],
                 "demographics": text_out["demographics"],
-                "family_history": text_out["family_history"],
+                "family_history": family_history,
+                "family_history_sanitization": family_audit,
                 "testing": text_out["testing"],
                 "gene_mentions": text_out["gene_mentions"],
                 "extraction_diagnostics": text_out.get("extraction_diagnostics", {}),

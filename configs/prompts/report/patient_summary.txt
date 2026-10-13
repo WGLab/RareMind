@@ -1,0 +1,13 @@
+TASK: Generate a patient evidence summary. Cover all clinically relevant supplied evidence without a fixed word limit; avoid repetition.
+${patient_evidence}
+
+Write EXACTLY these five labeled sections:
+PATIENT: One sentence: age, sex, referral reason, only where supplied.
+DOCUMENTED FINDINGS: Group findings by Neurological/Behavioral,
+Morphological/Physical, and Other; include specific note mentions and provenance.
+EXPLICITLY ABSENT: Documented patient negations from the NEGATED list only,
+with evidence. State none documented if the list is empty.
+PRIOR WORKUP: Each completed test and result on its own line. Distinguish
+pending/recommended tests. State only assay-supported constraints from normal
+results; do not invent coverage or claim categorical exclusion.
+CLINICAL FRAMING: One sentence describing the overall clinical picture.

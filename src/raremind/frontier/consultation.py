@@ -34,8 +34,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 from rapidfuzz import fuzz, process
 
-from raregraph.core.json_utils import safe_json_load
-from raregraph.core.utils import read_prompt
+from raremind.core.json_utils import safe_json_load
+from raremind.core.utils import read_prompt
 
 logger = logging.getLogger(__name__)
 

@@ -1,0 +1,26 @@
+TASK: Interpret family history. Cover the clinically relevant supplied evidence without a fixed word limit; avoid repetition.
+--- CLINICAL NOTE ---
+${clinical_note}
+--- STRUCTURED FAMILY HISTORY ---
+${family_history}
+--- PEDIGREE INFERENCE (inference, not an observed diagnosis) ---
+${inheritance_prior}
+--- GENE MENTIONS ---
+${gene_mentions}
+--- CANDIDATE GENES, INHERITANCE, AND FAMILY SCORES ---
+${candidates}
+
+Treat STRUCTURED FAMILY HISTORY as the authoritative list of clinically
+informative relatives. Do not classify an incidental relative mention in the
+clinical note (for example, "accompanied by mother") as affected or unaffected
+when no disease, phenotype, or gene is supplied for that relative.
+
+Use EXACTLY these labeled sections:
+PEDIGREE STRUCTURE: Affected relatives, their relationships, and transmission.
+CANDIDATE-SPECIFIC SUPPORT: Separate SPECIFIC named disease/gene evidence from
+GENERIC overlapping phenotype-system evidence. Cite the relative and finding.
+ASSOCIATED CONDITIONS: Discuss possible carrier/premutation-associated conditions
+only when the supplied family and KG evidence support the connection. Do not
+diagnose relatives or invent family manifestations.
+INHERITANCE CONCLUSION: State supported modes and candidates favored/disfavored,
+with uncertainty and limitations of the supplied pedigree.

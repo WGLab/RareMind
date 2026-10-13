@@ -1,0 +1,61 @@
+TASK: Generate a clinical assessment of one fixed candidate. Cover all relevant supplied evidence without a fixed word limit; avoid repetition.
+--- PATIENT SUMMARY (complete; verify against full evidence) ---
+${patient_summary}
+--- FAMILY HISTORY SUMMARY ---
+${family_summary}
+--- CANDIDATE DISEASE ---
+Name: ${disease_name}
+MONDO ID: ${disease_id}
+Final rank: ${rank}; displayed candidates: ${n_candidates}
+--- KNOWLEDGE GRAPH ENTRY ---
+${kg_entry}
+--- STAGE 5 AUDIT (an upstream assessment, not ground truth) ---
+${audit}
+--- STAGE 6 PAIRWISE COMPARISONS ---
+${pairwise}
+--- RANK TRAJECTORY ---
+${trajectory}
+--- STAGE 3 / FINAL SCORE COMPONENTS (relative values only) ---
+${scores}
+${patient_evidence}
+--- STRUCTURED FAMILY HISTORY ---
+${family_history}
+
+Use these labeled sections, with sufficient detail to explain the evidence and uncertainties:
+DISEASE OVERVIEW: Genetic basis and core features (2–3 sentences for leading
+candidates); cite the supplied KG source only.
+EVIDENCE SUPPORTING: Tie actual patient findings to KG features, including
+frequency/importance when supplied; distinguish generic from specific support.
+DOCUMENTED CONTRADICTIONS OR NEGATIVE TESTING: Retain clinically relevant explicit
+patient negatives and negative tests. Cite the supplied evidence for each and explain
+what it actually constrains, considering disease variability and assay limitations.
+Verify audit claims against source evidence; an audit label alone cannot establish
+absence. If none are documented, say so. Do not put unmentioned features here.
+INFORMATION TO CLARIFY: List only the most discriminating undocumented or uncertain
+features as questions to resolve, not negative findings or reasons to downgrade the
+candidate. "Not captured" is unknown, not absent. Disclose unavailable KG evidence.
+HOW THIS CANDIDATE DIFFERS FROM OTHERS: Use the supplied pairwise evidence for
+2–3 discriminators where supported. If unavailable, acknowledge that limitation.
+RANK TRAJECTORY NOTE: Include ONLY if net rank change > +5 or < -5; explain
+supported stage changes in one sentence, including fusion if relevant.
+OVERALL ASSESSMENT: Write a concise, natural clinical synthesis explaining why this
+candidate deserves consideration in this patient. Make the strongest documented
+support the center of the paragraph: connect specific findings, their combination,
+and any supported phenotype, genetic, family or imaging pattern to the supplied KG.
+Explain what is discriminating rather than just listing overlaps. Express the
+supported rationale directly; do not surround it with generic hedging.
+Include a source-verified absence or negative test when it materially changes the
+interpretation, explaining its significance and limitations using the supplied KG.
+Do not repeat every negative or add a routine disclaimer when none is relevant.
+Leave unmentioned features in INFORMATION TO CLARIFY rather than making them the
+theme of this paragraph. Do not let undocumented expected features drive a
+weak/unlikely assessment. When clarification is useful, name the most relevant
+action(s) actually supplied in the KG testing, diagnosis or initial-evaluation
+fields, and explain the specific question or competing diagnosis each would address.
+Respect prior completed/pending tests. Do not invent a test, its discriminatory
+value, or its availability; if no relevant KG action is supplied, do not force one.
+Use patient-specific prose, not a fixed sentence sequence, fill-in-the-blank formula,
+or repeated opening across candidates. These are priorities, not a prose template.
+If documented support is genuinely limited or nonspecific, say so accurately;
+do not manufacture confidence or treat Top-10 placement as diagnostic probability.
+Keep the pipeline's final rank unchanged. Do not repeat a completed test.

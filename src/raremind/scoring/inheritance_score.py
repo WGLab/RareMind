@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from raregraph.normalize.inheritance_inference import inheritance_compatibility_flag
+from raremind.normalize.inheritance_inference import inheritance_compatibility_flag
 
 
 def inheritance_score(

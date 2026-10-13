@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Set
 
-from raregraph.kg.kg_precompute import KGIndex
-from raregraph.normalize.hpo_ontology import HpoOntology
+from raremind.kg.kg_precompute import KGIndex
+from raremind.normalize.hpo_ontology import HpoOntology
 
 
 def _patient_hpo_ids(present_hpos: List[Dict[str, Any]]) -> List[str]:
